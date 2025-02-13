@@ -1,3 +1,7 @@
+git add .
+git commit -m "Reorganize repository: add folders 'manual', 'manual_math', and 'scripts'"
+git push
+
 # finite-capacity-system-manual
 Manuals and documentation for the Finite Capacity System.
 
