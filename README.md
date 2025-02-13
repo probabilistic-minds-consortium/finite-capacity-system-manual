@@ -13,7 +13,8 @@ Welcome to the repository for the Finite Capacity-Based System. Here you'll find
 
 1. [Finite Manual 0](manuals/finite_manual_0.pdf)
 2. [Finite Manual 1](manuals/finite_manual_1.pdf)
-*(Add links for all manual files)*
+3. [Finite Mabual_2](manuals/finite_manual_2.pdf)
+   
 
 ## Math Introductions
 
