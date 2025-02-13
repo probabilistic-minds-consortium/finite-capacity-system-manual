@@ -1,3 +1,4 @@
+
 # Finite Capacity-Based System Manuals
 
 Welcome to the official repository for the Finite Capacity-Based System—a revolutionary framework that reimagines mathematics by embracing finiteness and computational precision.
@@ -27,6 +28,11 @@ All manuals are designed to be read in sequence. Start with *Finite Manual 0*.
 
 ---
 
+1. [Finite Manual 0](manuals/finite_manual_0.pdf)
+2. [Finite Manual 1](manuals/finite_manual_1.pdf)
+3. [Finite Mabual_2](manuals/finite_manual_2.pdf)
+   
+=======
 ## 🧮 Math Introductions
 
 Begin your journey with our introductory materials on finite mathematics:
