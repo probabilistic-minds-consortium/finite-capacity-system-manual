@@ -1,76 +1,78 @@
-#!/usr/bin/env python3
 
 """
-Demonstration of lumps-coded approach combining:
+grains_mixed_demo.py
+
+Demonstration of a grains-coded approach combining:
     1) Gauss-Jordan elimination
     2) 2D Mesh geometry
     3) Trapezoidal rule integration
     4) Simple ODE/PDE discretization
-All using a 'Lump' class for finite rational increments.
 
-Additionally, we show a separate PDE file modeling 1D diffusion
-via lumps-coded logic. 
+All using a 'Grain' class for finite rational increments.
+
+Additionally, a separate PDE file models 1D diffusion using grains-coded logic.
+No floating-point arithmetic or infinite assumptions are used.
 """
 
 import math
-
-###############################################################################
-# 1. Lump Class (Rational-based)
-###############################################################################
 from math import gcd
 
-class Lump:
+###############################################################################
+# 1. Grain Class (Rational-based)
+###############################################################################
+
+class Grain:
     """
-    Lumps-coded fraction:
-      - stored as integer numerator (n) and denominator (d)
-      - all operations remain in rational form, no floating point
+    Grains-coded fraction:
+      - Stored as an integer numerator (n) and integer denominator (d).
+      - All operations remain in rational form, with no floating-point arithmetic.
     """
-    def __init__(self, numerator: int, denominator: int=1):
+    def __init__(self, numerator: int, denominator: int = 1):
         if denominator == 0:
-            raise ValueError("Denominator cannot be zero in lumps-coded rational.")
-        # sign management + gcd
-        sign = -1 if (numerator*denominator < 0) else 1
+            raise ValueError("Denominator cannot be zero in grains-coded rational.")
+        # Sign management and gcd-based simplification
+        sign = -1 if (numerator * denominator < 0) else 1
         num = abs(numerator)
         den = abs(denominator)
         g = gcd(num, den)
-        self.n = sign*(num//g)
-        self.d = den//g
+        self.n = sign * (num // g)
+        self.d = den // g
 
     def __repr__(self):
-        return f"Lump({self.n}/{self.d})"
+        return f"Grain({self.n}/{self.d})"
 
-    # Basic arithmetic ops
+    # Basic arithmetic operations
     def __add__(self, other):
-        if not isinstance(other, Lump):
-            raise TypeError("Lump can only add with Lump.")
-        new_num = self.n*other.d + other.n*self.d
-        new_den = self.d*other.d
-        return Lump(new_num, new_den)
+        if not isinstance(other, Grain):
+            raise TypeError("Grain can only add with Grain.")
+        new_num = self.n * other.d + other.n * self.d
+        new_den = self.d * other.d
+        return Grain(new_num, new_den)
 
     def __sub__(self, other):
-        return self.__add__(Lump(-other.n, other.d))
+        return self.__add__(Grain(-other.n, other.d))
 
     def __mul__(self, other):
-        if not isinstance(other, Lump):
-            raise TypeError("Lump can only multiply with Lump.")
-        return Lump(self.n*other.n, self.d*other.d)
+        if not isinstance(other, Grain):
+            raise TypeError("Grain can only multiply with Grain.")
+        return Grain(self.n * other.n, self.d * other.d)
 
     def __truediv__(self, other):
-        if not isinstance(other, Lump):
-            raise TypeError("Lump can only divide by Lump.")
+        if not isinstance(other, Grain):
+            raise TypeError("Grain can only divide by Grain.")
         if other.n == 0:
-            raise ZeroDivisionError("Divide by lumps-coded zero.")
-        return Lump(self.n*other.d, self.d*other.n)
+            raise ZeroDivisionError("Division by grains-coded zero is not permitted.")
+        return Grain(self.n * other.d, self.d * other.n)
 
-    # comparisons for pivot selection, etc.
+    # Comparison operators for pivot selection, etc.
     def __eq__(self, other):
-        return (self.n*other.d) == (other.n*self.d)
+        return (self.n * other.d) == (other.n * self.d)
 
     def __lt__(self, other):
-        return (self.n*other.d) < (other.n*self.d)
+        return (self.n * other.d) < (other.n * self.d)
 
     def __le__(self, other):
-        return (self.n*other.d) <= (other.n*self.d)
+        return (self.n * other.d) <= (other.n * self.d)
 
     def __ne__(self, other):
         return not (self == other)
@@ -81,68 +83,64 @@ class Lump:
     def __ge__(self, other):
         return not (self < other)
 
-
 ###############################################################################
 # 2. Gauss-Jordan Elimination
 ###############################################################################
 
 def gauss_jordan_solve(A, b):
     """
-    Solve system A x = b using lumps-coded Gauss-Jordan.
-    A is NxN lumps-coded matrix, b is Nx1 lumps-coded vector.
-    Return lumps-coded solution vector of length N.
+    Solve the system A * x = b using grains-coded Gauss-Jordan elimination.
+    A is an N x N matrix of Grain objects, and b is an N x 1 vector of Grain objects.
+    Returns the solution vector (list of Grain) of length N.
     """
+    n = len(A)
+    # Build the augmented matrix
+    mat = [row[:] + [bval] for row, bval in zip(A, b)]  # Each row: [A[i], b[i]]
 
-    N = len(A)
-    # Build augmented matrix
-    mat = [row[:] + [bval] for row, bval in zip(A,b)]  # Nx(N+1)
-
-    # Forward elimination
-    for i in range(N):
-        # pivot check
-        if mat[i][i] == Lump(0):
-            # swap row
-            for r in range(i+1, N):
-                if mat[r][i] != Lump(0):
+    # Forward elimination with pivoting
+    for i in range(n):
+        # Pivot selection: if the diagonal element is zero, swap with a lower row.
+        if mat[i][i] == Grain(0):
+            for r in range(i + 1, n):
+                if mat[r][i] != Grain(0):
                     mat[i], mat[r] = mat[r], mat[i]
                     break
         pivot = mat[i][i]
-        if pivot == Lump(0):
-            raise ValueError("Matrix is singular in lumps-coded sense.")
+        if pivot == Grain(0):
+            raise ValueError("Matrix is singular in grains-coded sense.")
 
-        # normalize pivot row
-        for c in range(i, N+1):
+        # Normalize row i by dividing each element by the pivot
+        for c in range(i, n + 1):
             mat[i][c] = mat[i][c] / pivot
 
-        # eliminate below pivot
-        for r in range(i+1, N):
+        # Eliminate all entries in column i for rows below
+        for r in range(i + 1, n):
             factor = mat[r][i]
-            if factor != Lump(0):
-                for c in range(i, N+1):
-                    mat[r][c] = mat[r][c] - factor*mat[i][c]
+            if factor != Grain(0):
+                for c in range(i, n + 1):
+                    mat[r][c] = mat[r][c] - factor * mat[i][c]
 
     # Back substitution
-    for i in reversed(range(N)):
+    for i in reversed(range(n)):
         for r in range(i):
             factor = mat[r][i]
-            if factor != Lump(0):
-                for c in range(i, N+1):
-                    mat[r][c] = mat[r][c] - factor*mat[i][c]
+            if factor != Grain(0):
+                for c in range(i, n + 1):
+                    mat[r][c] = mat[r][c] - factor * mat[i][c]
 
-    # solution in last col
-    return [row[N] for row in mat]
+    # Extract solution from the last column
+    return [row[n] for row in mat]
 
 def demo_gauss_jordan():
     print("\n===== Gauss-Jordan Demo =====")
-    # example system: 2x +1y=-4, 3x+4y=-7
+    # Example system: 2x + y = -4, 3x + 4y = -7
     A = [
-      [Lump(2), Lump(1)],
-      [Lump(3), Lump(4)]
+        [Grain(2), Grain(1)],
+        [Grain(3), Grain(4)]
     ]
-    b = [Lump(-4), Lump(-7)]
+    b = [Grain(-4), Grain(-7)]
     sol = gauss_jordan_solve(A, b)
-    print("Solution lumps-coded:", sol)
-
+    print("Grains-coded solution:", sol)
 
 ###############################################################################
 # 3. 2D Mesh (Discrete Geometry)
@@ -150,158 +148,143 @@ def demo_gauss_jordan():
 
 class MeshNode:
     """
-    A lumps-coded geometry node storing (x,y) as lumps-coded rationals
+    A grains-coded geometry node storing (x, y) as grains-coded rationals.
     """
-    def __init__(self, x: Lump, y: Lump):
+    def __init__(self, x: Grain, y: Grain):
         self.x = x
         self.y = y
 
     def __repr__(self):
-        return f"MeshNode({self.x},{self.y})"
+        return f"MeshNode({self.x}, {self.y})"
 
 def build_2d_mesh(width, height):
     """
-    Build lumps-coded 2D mesh: width x height
-    Use integer lumps for simplicity.
+    Build a grains-coded 2D mesh of size width x height using integer grains for coordinates.
     """
     mesh = []
     for j in range(height):
         row = []
         for i in range(width):
-            node = MeshNode(Lump(i), Lump(j))
+            node = MeshNode(Grain(i), Grain(j))
             row.append(node)
         mesh.append(row)
     return mesh
 
 def demo_2d_mesh():
     print("\n===== 2D Mesh Demo =====")
-    mesh = build_2d_mesh(3,2)
+    mesh = build_2d_mesh(3, 2)
     for row in mesh:
         print(row)
 
-
 ###############################################################################
-# 4. Lumps-coded Trapezoidal Integration
+# 4. Grains-coded Trapezoidal Integration
 ###############################################################################
 
-def lumps_trap_func(x: Lump):
-    # f(x)= x^2 + 1, lumps-coded
-    # x*x + Lump(1)
-    one = Lump(1)
-    return x*x + one
+def grains_trap_func(x: Grain):
+    # f(x)= x^2 + 1 (finite-coded)
+    one = Grain(1)
+    return x * x + one
 
-def lumps_trapezoid_integration(a: Lump, b: Lump, n_steps: int):
+def grains_trapezoid_integration(a: Grain, b: Grain, n_steps: int):
     """
-    lumps-coded integration of f(x)= x^2+1 from x=a..b with n_steps intervals
+    Perform grains-coded integration of f(x)= x^2 + 1 over [a, b] using the trapezoidal rule,
+    with n_steps intervals.
     """
     if b < a:
-        raise ValueError("b < a in lumps-coded trapezoid?")
-    # step = (b-a)/n_steps
-    step = (b - a)/Lump(n_steps)
-    # sum => f(a)+f(b)
-    total = lumps_trap_func(a) + lumps_trap_func(b)
+        raise ValueError("b < a in grains-coded trapezoid integration?")
+    # Compute step as a finite fraction: step = (b - a) / n_steps
+    step = (b - a) / Grain(n_steps)
+    total = grains_trap_func(a) + grains_trap_func(b)
     x = a
-    # middle sums
     for i in range(1, n_steps):
         x = x + step
-        total = total + (Lump(2)*lumps_trap_func(x))
-    # result => step/2 * total
-    return (step/Lump(2))*total
+        total = total + (Grain(2) * grains_trap_func(x))
+    return (step / Grain(2)) * total
 
 def demo_trapezoid():
-    print("\n===== Lumps-coded Trapezoidal Demo =====")
-    a = Lump(0)
-    b = Lump(5)
+    print("\n===== Grains-coded Trapezoidal Integration Demo =====")
+    a = Grain(0)
+    b = Grain(5)
     n = 5
-    area_approx = lumps_trapezoid_integration(a,b,n)
-    print(f"Trapezoid area ~ {area_approx}")
-
+    area_approx = grains_trapezoid_integration(a, b, n)
+    print(f"Trapezoidal area ≈ {area_approx}")
 
 ###############################################################################
 # 5. Simple ODE/PDE Discretization
 ###############################################################################
 
-def lumps_forward_diff(yvals, dx: Lump):
+def grains_forward_diff(yvals, dx: Grain):
     """
-    Forward difference derivative approx: (y[i+1]-y[i])/dx
-    returns lumps-coded array of len(yvals)-1
+    Compute forward difference derivative approximation:
+    (y[i+1] - y[i]) / dx for an array of y-values.
+    Returns a list of finite-coded derivatives.
     """
-    derivs=[]
+    derivs = []
     n = len(yvals)
-    for i in range(n-1):
-        slope = (yvals[i+1] - yvals[i])/dx
+    for i in range(n - 1):
+        slope = (yvals[i + 1] - yvals[i]) / dx
         derivs.append(slope)
     return derivs
 
-def lumps_ode_demo():
+def grains_ode_demo():
     """
-    Suppose y(x)= x^2+1 for x=0..4, lumps-coded steps dx=1
-    forward diff => derivative
+    Demonstrate finite-coded ODE: Let y(x)= x^2 + 1 for x=0..4 with dx=1,
+    and approximate the derivative using forward differences.
     """
-    print("\n===== lumps-coded ODE Demo =====")
-    dx = Lump(1)
-    # y(0..4)
-    yv = []
-    for xint in range(5):
-        xL = Lump(xint)
-        yv.append(xL*xL + Lump(1))
-    # derivative
-    deriv_approx = lumps_forward_diff(yv, dx)
-    print("y=", yv)
-    print("dy/dx forward approx =>", deriv_approx)
+    print("\n===== Grains-coded ODE Demo =====")
+    dx = Grain(1)
+    y_vals = []
+    for x_int in range(5):
+        x_val = Grain(x_int)
+        y_vals.append(x_val * x_val + Grain(1))
+    deriv_approx = grains_forward_diff(y_vals, dx)
+    print("y =", y_vals)
+    print("dy/dx forward approximation =", deriv_approx)
 
-def lumps_heat_step(u, alpha: Lump):
+def grains_heat_step(u, alpha: Grain):
     """
-    1D heat eq step:
-    u[i]^(n+1)= u[i]^n + alpha*(u[i+1]-2u[i]+u[i-1])
-    lumps-coded BC => 0 at boundary
+    Perform one finite-coded heat equation time step in 1D:
+    u[i]^(n+1) = u[i]^n + alpha * (u[i+1] - 2*u[i] + u[i-1])
+    Boundary conditions: u[0] and u[-1] are set to 0.
     """
-    n=len(u)
-    nextu = [v for v in u]
-    for i in range(1,n-1):
-        mid = u[i+1] - Lump(2)*u[i] + u[i-1]
-        nextu[i] = u[i] + alpha*mid
-    # boundary => 0
-    nextu[0]=Lump(0)
-    nextu[-1]=Lump(0)
-    return nextu
+    n = len(u)
+    next_u = u[:]  # Copy current state
+    for i in range(1, n - 1):
+        mid = u[i + 1] - Grain(2) * u[i] + u[i - 1]
+        next_u[i] = u[i] + alpha * mid
+    next_u[0] = Grain(0)
+    next_u[-1] = Grain(0)
+    return next_u
 
-def lumps_pde_demo():
+def grains_pde_demo():
     """
-    Small lumps-coded PDE heat step:
-      domain x=0..4 with dx=1 => 5 lumps
-    alpha=1/2
-    We'll do 2 steps for demonstration
+    Demonstrate a finite-coded PDE heat equation step on a 1D domain [0, 4] with dx=1.
+    alpha is set to 1/2.
+    Two time steps are simulated.
     """
-    print("\n===== lumps-coded PDE Heat Demo =====")
-    # initial
-    u = [Lump(0),Lump(3),Lump(6), Lump(3), Lump(0)]
-    alpha=Lump(1,2)
-    print("u(0)=", u)
+    print("\n===== Grains-coded PDE Heat Demo =====")
+    u = [Grain(0), Grain(3), Grain(6), Grain(3), Grain(0)]
+    alpha = Grain(1, 2)
+    print("Initial u =", u)
     for step in range(2):
-        u = lumps_heat_step(u, alpha)
-        print(f"u({step+1})=", u)
-
+        u = grains_heat_step(u, alpha)
+        print(f"u({step+1}) =", u)
 
 ###############################################################################
-# Putting it all together
+# 6. Putting It All Together
 ###############################################################################
 
 def main():
-    # 1) Gauss-Jordan
+    # 1) Gauss-Jordan Elimination
     demo_gauss_jordan()
-
-    # 2) 2D Mesh
+    # 2) 2D Mesh Geometry
     demo_2d_mesh()
-
-    # 3) lumps-coded trapezoid integration
+    # 3) Trapezoidal Integration
     demo_trapezoid()
+    # 4) ODE Forward Difference
+    grains_ode_demo()
+    # 5) PDE Heat Equation Step
+    grains_pde_demo()
 
-    # 4) lumps-coded ODE forward difference
-    lumps_ode_demo()
-
-    # 5) lumps-coded PDE heat step
-    lumps_pde_demo()
-
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
