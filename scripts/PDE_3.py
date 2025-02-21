@@ -1,255 +1,219 @@
+#!/usr/bin/env python3
+"""
+PDE_3.py
 
+A toy example of a grains-coded approach to PDE discretization.
+We model 1D diffusion (u_t = D * u_xx) using a basic cell-averaged (finite volume) method.
+The spatial domain [0,1] is subdivided into a finite number of cells (“grains”).
+All arithmetic is performed exactly using finite-coded rational arithmetic.
+No floating-point operations or infinite constructs are used in the core simulation.
+"""
 
-import math
+import matplotlib.pyplot as plt
 
-###############################################
-# 1) CONFIGURATION / CONSTANTS
-###############################################
-L = 1.0          # domain size
-NX = 21          # number of grid points
-DX = L/(NX-1)
-D  = 0.3         # diffusion coefficient (bigger so changes are more visible!)
-INIT_SCALE = 2.0 # lumps-coded scale factor
-INIT_NCAP  = 20  # initial vantage capacity
+###############################################################################
+# 1. Grain Class (Finite-Coded Rational Arithmetic)
+###############################################################################
 
-# Time stepping
-DT = 0.002      # bigger dt to see changes
-TOTAL_TIME = 0.02
+from math import gcd
 
-# We want partial sums not to vanish, so let's allow multiple vantage expansions
-# if a single partial difference is below 1 lumps step, we'll refine vantage
-# up to a max step or we do an iterative approach in multiplication.
-
-REFINE_MAX_STEPS = 5  # how many times we might refine vantage if an operation is about to vanish
-REFINE_FACTOR    = 2  # how much we multiply ncap each time
-
-###############################################
-# 2) LUMPS-CODED CLASS
-###############################################
-class LumpsValue:
+class Grain:
     """
-    Lumps-coded rational representation: value = (k / ncap) * scale.
-    We'll do a more cunning multiply that can refine vantage if needed 
-    to preserve partial increments.
+    Grain: a finite-coded fraction represented as an integer numerator (n) and denominator (d).
+    All operations (addition, subtraction, multiplication, division) are performed exactly
+    using integer arithmetic. No floating-point arithmetic is used internally.
     """
-    def __init__(self, k, ncap, scale):
-        self.k = k
-        self.ncap = ncap
-        self.scale = scale
-    
-    def to_float(self):
-        return (self.k/self.ncap)*self.scale
-
-    @staticmethod
-    def encode(real_val, ncap, scale):
-        k = int(round((real_val/scale)*ncap))
-        return LumpsValue(k, ncap, scale)
-
-    def copy(self):
-        return LumpsValue(self.k, self.ncap, self.scale)
-
-    def usage_fraction(self):
-        """Return abs(k)/ncap, how 'far' we are in lumps range."""
-        return abs(self.k)/self.ncap
+    def __init__(self, numerator: int, denominator: int = 1):
+        if denominator == 0:
+            raise ValueError("Denominator cannot be zero in Grain.")
+        if not (isinstance(numerator, int) and isinstance(denominator, int)):
+            raise TypeError("Grain requires integer numerator and denominator.")
+        sign = -1 if (numerator * denominator < 0) else 1
+        num = abs(numerator)
+        den = abs(denominator)
+        g = gcd(num, den)
+        self.n = sign * (num // g)
+        self.d = den // g
 
     def __repr__(self):
-        return f"LumpsValue(k={self.k}, ncap={self.ncap}, scale={self.scale:.2f})"
+        return f"Grain({self.n}/{self.d})"
 
-###############################################
-# 3) BASIC ARITHMETIC (IMPROVED)
-###############################################
-def lumps_unify(a:LumpsValue, b:LumpsValue):
+    def to_float(self):
+        """For display only: convert to a float."""
+        return self.n / self.d
+
+    # Arithmetic operations:
+    def __add__(self, other):
+        if not isinstance(other, Grain):
+            raise TypeError("Grain can only be added to another Grain.")
+        new_num = self.n * other.d + other.n * self.d
+        new_den = self.d * other.d
+        return Grain(new_num, new_den)
+
+    def __sub__(self, other):
+        if not isinstance(other, Grain):
+            raise TypeError("Grain can only be subtracted by another Grain.")
+        new_num = self.n * other.d - other.n * self.d
+        new_den = self.d * other.d
+        return Grain(new_num, new_den)
+
+    def __mul__(self, other):
+        if not isinstance(other, Grain):
+            raise TypeError("Grain can only be multiplied by another Grain.")
+        return Grain(self.n * other.n, self.d * other.d)
+
+    def __truediv__(self, other):
+        if not isinstance(other, Grain):
+            raise TypeError("Grain can only be divided by another Grain.")
+        if other.n == 0:
+            raise ZeroDivisionError("Division by zero in Grain arithmetic.")
+        return Grain(self.n * other.d, self.d * other.n)
+
+    def __neg__(self):
+        return Grain(-self.n, self.d)
+
+    # Comparison operators:
+    def __eq__(self, other):
+        if not isinstance(other, Grain):
+            return False
+        return self.n == other.n and self.d == other.d
+
+    def __lt__(self, other):
+        return self.n * other.d < other.n * self.d
+
+    def __le__(self, other):
+        return self.n * other.d <= other.n * other.d
+
+    def __gt__(self, other):
+        return self.n * other.d > other.n * self.d
+
+    def __ge__(self, other):
+        return self.n * other.d >= other.n * other.d
+
+###############################################################################
+# 2. Finite-Coded Exponential Function (Taylor Series)
+###############################################################################
+
+def finite_exp(x: Grain, terms=12):
     """
-    Unify vantage (ncap) for a,b by picking max(ncap), 
-    rescaling k as needed.
-    BUT we keep scale consistent, raising error if they differ.
+    Compute exp(x) as a finite-coded approximation using the Taylor series:
+       exp(x) = sum_{n=0}^{terms-1} x^n / n!
+    All operations use Grain arithmetic.
     """
-    if a.scale!=b.scale:
-        raise ValueError("Scales differ. Keep scale uniform or unify them carefully!")
-    if a.ncap==b.ncap:
-        return a,b,a.ncap  # done
+    result = Grain(1)  # term for n=0: 1
+    term = Grain(1)
+    for n in range(1, terms):
+        term = term * x / Grain(n)
+        result = result + term
+    return result
 
-    new_ncap = max(a.ncap, b.ncap)
-    # rescale a
-    ak_new = (a.k*new_ncap)//a.ncap if (new_ncap!=a.ncap) else a.k
-    # rescale b
-    bk_new = (b.k*new_ncap)//b.ncap if (new_ncap!=b.ncap) else b.k
+###############################################################################
+# 3. Finite-Coded Initial Condition
+###############################################################################
 
-    a_new = LumpsValue(ak_new, new_ncap, a.scale)
-    b_new = LumpsValue(bk_new, new_ncap, a.scale)
-    return a_new, b_new, new_ncap
-
-def lumps_add(a:LumpsValue, b:LumpsValue):
-    a_u,b_u,nc = lumps_unify(a,b)
-    return LumpsValue(a_u.k + b_u.k, nc, a_u.scale)
-
-def lumps_sub(a:LumpsValue, b:LumpsValue):
-    a_u,b_u,nc = lumps_unify(a,b)
-    return LumpsValue(a_u.k - b_u.k, nc, a_u.scale)
-
-def lumps_refine(val:LumpsValue, factor=2):
+def initial_condition(x: Grain):
     """
-    Double (or factor) vantage for val. 
+    Compute the initial condition:
+        u(x) = exp(-((x - 1/2)/1/10)^2)
+    using finite-coded arithmetic.
     """
-    new_ncap = val.ncap*factor
-    new_k = (val.k*new_ncap)//val.ncap
-    return LumpsValue(new_k, new_ncap, val.scale)
+    half = Grain(1,2)
+    tenth = Grain(1,10)
+    diff = x - half
+    ratio = diff / tenth
+    ratio_sq = ratio * ratio
+    # Compute negative value: 0 - ratio_sq
+    neg_ratio_sq = Grain(0) - ratio_sq
+    return finite_exp(neg_ratio_sq, terms=12)
 
-def lumps_mul(a:LumpsValue, b:LumpsValue):
+###############################################################################
+# 4. PDE 1D Diffusion Simulation (Grains-Coded)
+###############################################################################
+
+def grains_diffusion_1D(n_cells=21, total_time=Grain(2,100), dt=Grain(2,1000)):
     """
-    Attempt a more cunning multiplication: 
-    (a.k / a.ncap * a.scale) * (b.k / b.ncap * b.scale)
-     = (a.k*b.k)/(a.ncap*b.ncap) * (a.scale*b.scale).
-
-    We'll define a new lumps-coded object. 
-    But we want the result to remain in the same scale??? 
-    That is tricky if a.scale != b.scale, but we forbid that above. 
-    We might unify vantage in steps, plus do some vantage expansions if the product < 1 lumps step.
+    Solve the 1D diffusion equation u_t = D * u_xx using a grains-coded cell-averaged approach.
+    
+    Domain: x in [0, 1]
+    n_cells: number of grid points.
+    D: Diffusion coefficient (finite-coded, defined below).
+    dt: Time step (finite-coded).
+    total_time: Final time (finite-coded).
+    
+    Returns:
+       x_centers: list of Grain representing cell centers.
+       u: final solution as list of Grain.
     """
-    # unify vantage first
-    a_u, b_u, big_ncap = lumps_unify(a,b)
+    # Configuration constants as finite-coded values:
+    L = Grain(1)  # Domain size = 1
+    NX = n_cells  # Number of grid points
+    DX = L / Grain(NX - 1)  # Cell width
+    D = Grain(3,10)         # Diffusion coefficient = 0.3
 
-    # do exact integer multiply for k:  product_k = a_u.k * b_u.k
-    product_k = a_u.k*b_u.k
+    # Build x_centers using a loop (center of each cell: (i + 0.5) / (NX - 1))
+    x_centers = []
+    for i in range(NX):
+        center = (Grain(i) + Grain(1,2)) / Grain(NX - 1)
+        x_centers.append(center)
 
-    # the 'raw' vantage is big_ncap^2 if we interpret the ratio: product_k/(big_ncap^2)* scale^2
-    # But let's define a new vantage = big_ncap^2 for exact rep. That might be huge. 
-    # We'll store it in the same scale (???). 
-    # Then value = product_k / (big_ncap^2)* (scale^2).
+    # Initialize solution u with the initial condition computed using finite_exp.
+    u = []
+    for x in x_centers:
+        u_val = initial_condition(x)
+        u.append(u_val)
+    # Enforce boundary conditions: u[0] = u[NX-1] = Grain(0)
+    zero_val = Grain(0)
+    u[0] = zero_val
+    u[-1] = zero_val
 
-    # For a comedic approach, let's define result scale = a.scale**2, vantage=some big. 
-    # We do want to preserve small increments if possible. Let's define vantage = big_ncap^2. 
-    # But that might be enormous. We'll do an iterative approach if we want to keep vantage from meltdown. 
-    # Let's be direct for now:
+    # Compute the finite-coded coefficient: factor = D * (dt / (DX * DX))
+    factor = D * (dt / (DX * DX))
 
-    new_scale = a_u.scale*a_u.scale
-    raw_ncap = big_ncap*big_ncap
+    # Determine the number of time steps: total_time/dt (assuming dt divides total_time exactly)
+    n_steps = 0
+    current_time = Grain(0)
+    while current_time < total_time:
+        n_steps += 1
+        current_time = current_time + dt
 
-    # We create lumps-coded object: 
-    #   new_k = product_k, new_ncap= raw_ncap, new_scale= new_scale
-    # Then if raw_ncap is monstrous, we can reduce it by gcd if possible. 
-    # But let's keep it. Then we might refine it or unify vantage with a simpler approach. 
-    # We'll do a meltdown approach:
+    # Time stepping loop: update u using a finite difference approximation.
+    for step in range(n_steps):
+        u_next = u[:]  # Copy current state
+        for i in range(1, NX - 1):
+            laplacian = u[i+1] - Grain(2)*u[i] + u[i-1]
+            u_next[i] = u[i] + factor * laplacian
+        # Enforce boundary conditions
+        u_next[0] = zero_val
+        u_next[-1] = zero_val
+        u = u_next
 
-    val = LumpsValue(product_k, raw_ncap, new_scale)
+    return x_centers, u
 
-    # if usage fraction is extremely small, we might do vantage expansions ironically in the negative sense?? 
-    # It's complicated. We'll keep it simple for now:
-    return val
-
-def lumps_scalar(a:LumpsValue, scalar:float):
-    """
-    multiply lumps-coded a by float scalar => lumps-coded result 
-    but do a modest vantage expansion if partial increments vanish
-    """
-    # repeated approach:
-    val = a.to_float() * scalar
-    # encode at same vantage for now
-    test = LumpsValue.encode(val, a.ncap, a.scale)
-    # if test usage is < some small threshold, we might refine vantage. 
-    # We'll do an iterative refine at most REFINE_MAX_STEPS times
-    step_count=0
-    while test.k==0 and abs(val)>1e-14 and step_count<REFINE_MAX_STEPS:
-        # refine vantage
-        test = lumps_refine(test, factor=REFINE_FACTOR)
-        step_count+=1
-    return test
-
-###############################################
-# PDE: 1D Heat eq solver
-###############################################
-def refine_if_tiny(u_list):
-    """
-    If a big chunk of them is near 1 lumps step or partial updates vanish, we refine vantage. 
-    We'll do a simpler approach: if usage fraction < some small threshold => refine
-    Actually let's do the opposite: if usage fraction is > 0.95 => refine. 
-    But we do so for the entire array. We'll keep it simpler.
-    """
-    # or do we do the partial difference approach? 
-    max_usage = 0
-    for val in u_list:
-        if val.usage_fraction()>max_usage:
-            max_usage=val.usage_fraction()
-    if max_usage>0.95:
-        # refine entire array
-        for i, val in enumerate(u_list):
-            u_list[i] = lumps_refine(val)
-        print(f"[REFINE] vantage doubled to ncap={u_list[0].ncap}")
-
-def heat_step(u_current, alpha):
-    """
-    Lumps-coded explicit heat step:
-      u^{n+1}_j = u^n_j + alpha*(u^n_{j+1} - 2u^n_j + u^n_{j-1})
-    We'll do lumps-coded ops carefully, possibly refining vantage if the partial difference is < 1 lumps step.
-    """
-    n=len(u_current)
-    u_next = [v.copy() for v in u_current]
-    # boundaries
-    # lumps-coded zero
-    zero_lumps = LumpsValue.encode(0.0, u_current[0].ncap, u_current[0].scale)
-    u_next[0]  = zero_lumps
-    u_next[-1] = zero_lumps
-
-    for j in range(1,n-1):
-        # diff_expr = (u_{j+1} - 2u_j + u_{j-1})
-        # lumps-coded: 
-        two = LumpsValue.encode(2.0, u_current[j].ncap, u_current[j].scale)
-        tmpA = lumps_sub(u_current[j+1], lumps_mul(two, u_current[j]))
-        tmpB = lumps_add(tmpA, u_current[j-1])
-        # multiply by alpha
-        diff = lumps_mul(alpha, tmpB)
-        # final 
-        partial = lumps_add(u_current[j], diff)
-        # if partial usage fraction < small => refine vantage in partial. 
-        # or if partial usage fraction> ~1 => refine. We'll keep it simpler for now:
-        u_next[j] = partial
-
-    return u_next
-
-def print_solution(u_arr, label=""):
-    dec = [v.to_float() for v in u_arr]
-    print(label, " ".join(f"{val:.4f}" for val in dec))
+###############################################################################
+# 5. Main: Run the Diffusion Simulation and Plot the Result
+###############################################################################
 
 def main():
-    # 0) build lumps-coded initial
-    xvals = [i*DX for i in range(NX)]
-    u = []
-    for x in xvals:
-        val = math.exp(-((x-0.5)/0.1)**2)  # some gaussian
-        lumpsv = LumpsValue.encode(val, INIT_NCAP, INIT_SCALE)
-        u.append(lumpsv)
-    # boundary => 0
-    zero_lumps = LumpsValue.encode(0.0, INIT_NCAP, INIT_SCALE)
-    u[0]  = zero_lumps
-    u[-1] = zero_lumps
+    # Set simulation parameters using finite-coded values
+    NX = 21
+    dt = Grain(2, 1000)         # 0.002 as a fraction 2/1000
+    total_time = Grain(2, 100)   # 0.02 as a fraction 2/100
 
-    # lumps-coded alpha
-    raw_alpha = D*(DT)/(DX*DX)
-    alpha     = LumpsValue.encode(raw_alpha, INIT_NCAP, INIT_SCALE)
+    x_centers, u_final = grains_diffusion_1D(n_cells=NX, total_time=total_time, dt=dt)
 
-    print_solution(u, f"Initial (ncap={INIT_NCAP}):")
+    # For plotting, convert finite-coded (Grain) values to floats (display conversion only)
+    x_vals = [x.to_float() for x in x_centers]
+    u_vals = [u.to_float() for u in u_final]
 
-    t=0.0
-    step=0
-    while t<TOTAL_TIME:
-        # do step
-        step+=1
-        # refine if near usage>0.95 
-        refine_if_tiny(u)
-        # unify alpha vantage if changed
-        if alpha.ncap!=u[0].ncap:
-            alpha_val = alpha.to_float()
-            alpha = LumpsValue.encode(alpha_val, u[0].ncap, alpha.scale)
+    # Plot the result
+    plt.figure(figsize=(8,5))
+    plt.plot(x_vals, u_vals, 'o-', label=f'Grains-coded Diffusion, final t={total_time.to_float():.3f}')
+    plt.xlabel("x")
+    plt.ylabel("u")
+    plt.title("1D Diffusion with a Grains-Coded (Finite) Approach")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
-        u = heat_step(u, alpha)
-        t += DT
-        # check vantage again if partial difference is small
-        refine_if_tiny(u)
-
-        if step%10==0:
-            print_solution(u, f"step={step}, t={t:.4f}")
-
-    print_solution(u, f"Final (step={step}, t={t:.4f}):")
-
-if __name__=="__main__":
+if __name__ == "__main__":
     main()

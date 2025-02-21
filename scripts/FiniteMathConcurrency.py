@@ -1,125 +1,111 @@
 #!/usr/bin/env python3
 
 """
-Lumps-Coded Concurrency Manager:
+Grains-Coded Concurrency Manager:
 An example script demonstrating how to manage concurrency 
-in a microservices or tasks environment using lumps-coded (finite) increments,
+in a microservices or tasks environment using grains-coded (finite) increments,
 dynamic vantage refinement, and discrete scaling steps.
 
 Key Points:
-  - concurrency_limit is stored as a lumps-coded fraction k/N or a vantage-based integer.
-  - capacity refinements occur in leaps (e.g., multiply concurrency by an integer factor).
-  - we track 'load pressure' or 'error rate' lumps-coded as well.
-  - we never let concurrency expansion be infinite—bounded steps only!
-  - safe and stable: each vantage step is validated, no illusions of continuous scaling.
+  - Concurrency is stored as a grains-coded fraction or a vantage-based integer.
+  - Capacity refinements occur in discrete leaps (multiplying concurrency by an integer factor).
+  - We track 'load pressure' as a finite integer representing a fraction.
+  - Concurrency expansion is strictly bounded – no reliance on any notion of infinity.
+  - Each vantage step is validated to ensure stable, finite updates.
 """
 
 import math
 import random
 import time
 
-# We'll define a vantage: concurrency has a "current capacity" vantage_c
-# which is an integer representing how many tasks we can run in parallel.
-# If vantage_c is too small, we refine by an integer factor (like lumps-coded expansions).
-# We'll also lumps-code the load pressure as an integer from 0..N.
-
-class LumpsConcurrencyManager:
+class GrainsConcurrencyManager:
     def __init__(self, 
-                 initial_concurrency=5,   # our vantage_c
-                 max_refine_factor=10,     # how much we multiply vantage_c in extreme
-                 refine_threshold=0.7,     # if load_pressure fraction > refine_threshold, we refine
-                 lumps_n=100):
+                 initial_concurrency=5,   # starting concurrency vantage
+                 max_refine_factor=10,     # maximum integer factor for concurrency expansion
+                 refine_threshold=0.7,     # threshold (as a finite fraction) for load pressure triggering refinement
+                 grains_n=100):
         """
-        initial_concurrency: starting vantage concurrency
-        max_refine_factor: largest factor for concurrency expansions
-        refine_threshold: lumps-coded fraction in [0,1], if load pressure surpasses it, we refine
-        lumps_n: the lumps denominator for load pressure
+        initial_concurrency: starting number of tasks that can run in parallel.
+        max_refine_factor: the largest factor by which concurrency can be expanded.
+        refine_threshold: finite fraction in [0,1]; if load pressure exceeds this, refine capacity.
+        grains_n: the denominator used for expressing load pressure as a finite fraction.
         """
         self.concurrency = initial_concurrency
         self.max_refine_factor = max_refine_factor
         self.refine_threshold = refine_threshold
-        self.lumps_n = lumps_n
+        self.grains_n = grains_n
 
-        # We store load pressure lumps as an integer 0..lumps_n
-        # e.g. a fraction x in [0,1] => lumps_load = int(x * lumps_n)
-        self.lumps_load = 0
+        # Load pressure is stored as an integer from 0 to grains_n, representing a fraction.
+        self.grains_load = 0
 
     def compute_load_fraction(self):
-        """Return the lumps-coded load as a fraction lumps_load / lumps_n."""
-        return self.lumps_load / float(self.lumps_n)
+        """Return the finite load fraction as grains_load / grains_n (exact value stored as a fraction)."""
+        # The computation is done in integers; conversion is only for display.
+        return self.grains_load, self.grains_n
 
     def adjust_load_pressure(self, fraction):
         """
-        fraction in [0,1] => lumps_load = int(round(fraction * lumps_n)).
-        This might come from actual metrics: CPU usage, queue depth, error rate, etc.
+        Given a fraction in [0,1], set grains_load = int(round(fraction * grains_n)).
+        This simulates load from real metrics (e.g. CPU usage, queue depth).
         """
-        lumps_val = int(round(fraction * self.lumps_n))
-        # clamp it
-        lumps_val = max(0, min(lumps_val, self.lumps_n))
-        self.lumps_load = lumps_val
+        grains_val = int(round(fraction * self.grains_n))
+        # Clamp to ensure the value remains between 0 and grains_n.
+        grains_val = max(0, min(grains_val, self.grains_n))
+        self.grains_load = grains_val
 
     def maybe_refine_capacity(self):
         """
-        If load fraction > refine_threshold, we consider refining concurrency
-        by a discrete integer factor, up to max_refine_factor.
-        We'll choose a minimal factor that keeps load below threshold, if possible.
+        If the load fraction exceeds the refine_threshold, refine concurrency 
+        by multiplying it by an integer factor (between 2 and max_refine_factor).
         """
-        current_fraction = self.compute_load_fraction()
+        current_load, total = self.compute_load_fraction()
+        current_fraction = current_load / total
         if current_fraction > self.refine_threshold:
-            # we refine concurrency in lumps-coded step: concurrency *= factor
-            # But factor is an integer from 2..max_refine_factor
-            # We'll pick the smallest factor that (roughly) would bring load fraction under threshold
-            # approximate needed factor = current_fraction / refine_threshold
+            # Determine the smallest factor that brings the fraction under threshold.
             factor_guess = math.ceil(current_fraction / self.refine_threshold)
             factor_guess = max(2, min(factor_guess, self.max_refine_factor))
             
             old_concurrency = self.concurrency
             self.concurrency *= factor_guess
-            print(f"[REFINE] Concurrency vantage refined: {old_concurrency} -> {self.concurrency} (factor={factor_guess})")
+            print(f"[REFINE] Concurrency refined: {old_concurrency} -> {self.concurrency} (factor = {factor_guess})")
 
     def run_tasks(self, tasks):
         """
-        Simulate running tasks with current concurrency vantage.
-        We'll chunk tasks into lumps-coded concurrency batches.
-        Meanwhile, we'll simulate random load pressure changes 
-        and see if we refine in the process.
+        Simulate running tasks with current finite concurrency vantage.
+        Tasks are processed in batches equal to the current concurrency.
+        Load pressure is simulated and used to decide whether to refine capacity.
         """
         i = 0
         total_tasks = len(tasks)
         while i < total_tasks:
-            # run a batch of tasks = concurrency
             batch_size = min(self.concurrency, total_tasks - i)
             batch_tasks = tasks[i:i+batch_size]
-            print(f"Running batch {i}..{i+batch_size-1} with concurrency={self.concurrency}")
+            print(f"Running tasks {i} to {i+batch_size-1} with concurrency = {self.concurrency}")
             
-            # simulate load
-            # e.g. fraction ~ random, or we check how "big" the tasks are
-            # For demonstration, we'll do something naive:
-            load_fraction = 0.3 + 0.5 * random.random()  # in [0.3..0.8]
+            # Simulate load pressure as a finite fraction in [0.3, 0.8].
+            load_fraction = 0.3 + 0.5 * random.random()
             self.adjust_load_pressure(load_fraction)
-            print(f"   ...Load fraction simulated => {load_fraction:.2f}")
+            print(f"   ...Simulated load fraction: {load_fraction:.2f}")
 
-            # maybe refine
+            # Check if refinement is needed.
             self.maybe_refine_capacity()
 
-            # Fake "running" them
+            # Simulate running tasks (sleep for demonstration).
             time.sleep(0.5)
             i += batch_size
 
-        print("All tasks completed with lumps-coded concurrency approach.")
+        print("All tasks completed with the grains-coded finite approach.")
 
 
 def example_usage():
-    # Example tasks
+    # Create example tasks.
     tasks = [f"task_{n}" for n in range(25)]
-
-    manager = LumpsConcurrencyManager(
+    manager = GrainsConcurrencyManager(
         initial_concurrency=3, 
         max_refine_factor=5,    
         refine_threshold=0.6,   
-        lumps_n=20
+        grains_n=20
     )
-
     manager.run_tasks(tasks)
 
 if __name__ == "__main__":

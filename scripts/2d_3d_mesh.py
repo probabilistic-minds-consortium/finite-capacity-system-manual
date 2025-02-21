@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 
-class Lump:
+class Grain:
     """
-    A minimal lumps-coded fraction class, storing numerator (num) and denominator (den).
+    A minimal grains-coded fraction class, storing numerator (num) and denominator (den).
     This is a simple version, suitable for small integer-based examples.
     """
     def __init__(self, num, den=1):
         if den == 0:
-            raise ValueError("Denominator cannot be zero in a lumps-coded fraction.")
+            raise ValueError("Denominator cannot be zero in a grains-coded fraction.")
         self.num = num
         self.den = den
 
     def __repr__(self):
-        return f"Lump({self.num}/{self.den})"
+        return f"Grain({self.num}/{self.den})"
 
 class MeshNode:
-    """Represents a lumps-coded 2D mesh node (x, y). Stores lumps-coded coords and adjacency."""
-    def __init__(self, x_lump, y_lump):
-        self.x = x_lump
-        self.y = y_lump
+    """Represents a grains-coded 2D mesh node (x, y). Stores grains-coded coordinates and adjacency."""
+    def __init__(self, x_grain, y_grain):
+        self.x = x_grain
+        self.y = y_grain
         self.neighbors = []  # references to other MeshNode objects
 
     def __repr__(self):
@@ -27,7 +27,7 @@ class MeshNode:
 
 def build_2d_mesh(nx, ny):
     """
-    Create a lumps-coded mesh of size nx x ny, with integer lumps-coded
+    Create a grains-coded mesh of size nx x ny, with integer grains-coded
     coordinates and 8-way adjacency (including diagonals).
     """
     # Create the node grid
@@ -35,7 +35,7 @@ def build_2d_mesh(nx, ny):
     for i in range(nx):
         row_nodes = []
         for j in range(ny):
-            node = MeshNode(Lump(i), Lump(j))
+            node = MeshNode(Grain(i), Grain(j))
             row_nodes.append(node)
         nodes.append(row_nodes)
 
@@ -57,7 +57,7 @@ def build_2d_mesh(nx, ny):
 if __name__ == "__main__":
     # Example usage: build a 3x2 mesh and print adjacency
     mesh = build_2d_mesh(3, 2)
-    print("Lumps-coded 2D mesh with 8-way adjacency:")
+    print("Grains-coded 2D mesh with 8-way adjacency:")
     for row in mesh:
         for node in row:
             neigh_list = [

@@ -1,106 +1,104 @@
-class Lump:
+#!/usr/bin/env python3
+
+class Grain:
     """Potentially storing an integer or a rational (numerator, denominator)."""
     def __init__(self, numerator, denominator=1):
         # naive rational approach
+        if denominator == 0:
+            raise ValueError("Denominator cannot be zero in a grains-coded fraction.")
         self.num = numerator
         self.den = denominator
 
     def __repr__(self):
-        return f"Lump({self.num}/{self.den})"
+        return f"Grain({self.num}/{self.den})"
 
-# Helper gcd for simplifying lumps
+# Helper: Euclidean algorithm for GCD
 def gcd(a, b):
     if b == 0:
         return a
     return gcd(b, a % b)
 
-def lumps_add(l1, l2):
+def grains_add(g1, g2):
     """(n1/d1) + (n2/d2) => (n1*d2 + n2*d1)/(d1*d2)."""
-    num = l1.num*l2.den + l2.num*l1.den
-    den = l1.den * l2.den
+    num = g1.num * g2.den + g2.num * g1.den
+    den = g1.den * g2.den
     g = gcd(abs(num), abs(den))
-    return Lump(num//g, den//g)
+    return Grain(num // g, den // g)
 
-def lumps_sub(l1, l2):
+def grains_sub(g1, g2):
     """(n1/d1) - (n2/d2)."""
-    num = l1.num*l2.den - l2.num*l1.den
-    den = l1.den * l2.den
+    num = g1.num * g2.den - g2.num * g1.den
+    den = g1.den * g2.den
     g = gcd(abs(num), abs(den))
-    return Lump(num//g, den//g)
+    return Grain(num // g, den // g)
 
-def lumps_mult(l1, l2):
+def grains_mult(g1, g2):
     """(n1/d1) * (n2/d2)."""
-    num = l1.num*l2.num
-    den = l1.den*l2.den
+    num = g1.num * g2.num
+    den = g1.den * g2.den
     g = gcd(abs(num), abs(den))
-    return Lump(num//g, den//g)
+    return Grain(num // g, den // g)
 
-def lumps_div(l1, l2):
+def grains_div(g1, g2):
     """(n1/d1) / (n2/d2) => (n1*d2)/(n2*d1)."""
-    num = l1.num * l2.den
-    den = l1.den * l2.num
-    # handle zero or sign
-    if den == 0:
-        raise ZeroDivisionError("lumps_div: denominator zero.")
+    if g2.num == 0:
+        raise ZeroDivisionError("grains_div: division by zero.")
+    num = g1.num * g2.den
+    den = g1.den * g2.num
     g = gcd(abs(num), abs(den))
-    return Lump(num//g, den//g)
+    return Grain(num // g, den // g)
 
-def lumps_zero():
-    return Lump(0, 1)
+def grains_zero():
+    return Grain(0, 1)
 
-def lumps_one():
-    return Lump(1, 1)
+def grains_one():
+    return Grain(1, 1)
 
 def gauss_jordan_solve(A, b):
     """
-    Solve A*x = b using lumps-coded Gauss-Jordan.
-    - A is list of lists of Lump
-    - b is list of Lump
-    Returns x as list of Lump.
+    Solve A*x = b using grains-coded Gauss-Jordan.
+    - A is a list of lists of Grain objects.
+    - b is a list of Grain objects.
+    Returns x as a list of Grain.
     """
     n = len(A)
-    # build augmented matrix
-    aug = [row[:] + [bval] for row, bval in zip(A, b)]  # each row: [A[i], b[i]]
+    # Build augmented matrix
+    aug = [row[:] + [bval] for row, bval in zip(A, b)]
 
-    # Forward elimination + pivot
+    # Forward elimination with pivoting
     for i in range(n):
-        # 1) pivot: ideally pick pivot row s.t. aug[i][i] != 0
+        # Pivot: find a non-zero element in column i
         pivot = aug[i][i]
         if pivot.num == 0:
-            # lumps-coded pivot swap logic (naive approach)
-            for r in range(i+1, n):
+            for r in range(i + 1, n):
                 if aug[r][i].num != 0:
                     aug[i], aug[r] = aug[r], aug[i]
                     pivot = aug[i][i]
                     break
         
-        # now pivot != 0 (hopefully)
-        # 2) normalize row i: divide entire row by pivot
+        # Normalize row i by dividing every element by the pivot
         div_factor = pivot
-        for col in range(n+1):
-            aug[i][col] = lumps_div(aug[i][col], div_factor)
+        for col in range(n + 1):
+            aug[i][col] = grains_div(aug[i][col], div_factor)
 
-        # 3) eliminate below and above
+        # Eliminate all other entries in column i
         for r in range(n):
             if r != i:
                 factor = aug[r][i]
-                # row r <- row r - factor * row i
-                for c in range(i, n+1):
-                    product = lumps_mult(factor, aug[i][c])
-                    aug[r][c] = lumps_sub(aug[r][c], product)
+                for c in range(i, n + 1):
+                    product = grains_mult(factor, aug[i][c])
+                    aug[r][c] = grains_sub(aug[r][c], product)
 
-    # Now we have an identity in left part => solution in last column
-    # solution x[i] = aug[i][n]
+    # Extract solution vector: last column of augmented matrix
     x = [row[n] for row in aug]
     return x
 
-
 # Example usage:
 A = [
-  [Lump(2), Lump(1)],
-  [Lump(1), Lump(-1)]
+  [Grain(2), Grain(1)],
+  [Grain(1), Grain(-1)]
 ]
-b = [Lump(5), Lump(-1)]
+b = [Grain(5), Grain(-1)]
 
 sol = gauss_jordan_solve(A, b)
-print("Lumps-coded Gauss-Jordan solution:", sol)
+print("Grains-coded Gauss-Jordan solution:", sol)

@@ -1,116 +1,115 @@
 #!/usr/bin/env python3
 # page_rank.py
-# Lumps-coded PageRank in a single file
+# Grains-coded PageRank in a single file
 
 import random
+from collections import defaultdict
+from fractions import Fraction
 
-def build_lumps_transition(graph, capacity=10):
+def build_grains_transition(graph, capacity=10):
     """
-    Build lumps-coded outlinks for each node.
+    Build grains-coded outlink distributions for each node.
 
-    graph: dict of the form { "A": ["B","C"], "B": ["C"], "C": ["A","B","C"] }
-    capacity: lumps for uniform distribution among outlinks or to reflect link weight.
+    graph: dict of the form { "A": ["B", "C"], "B": ["C"], "C": ["A", "B", "C"] }
+    capacity: number of grains to assign uniformly among outlinks or to reflect link weight.
 
-    Returns lumps_transition: {
-      node: { outnode: lumps_count, ... },
-      ...
-    }
+    Returns a dictionary of the form:
+      { node: { outnode: grains_count, ... }, ... }
     """
-    lumps_transition = {}
+    grains_transition = {}
     for node, outlinks in graph.items():
-        lumps_transition[node] = {}
+        grains_transition[node] = {}
         if len(outlinks) == 0:
-            # No outlinks => self-loop with all lumps
-            lumps_transition[node][node] = capacity
+            # No outlinks: assign a self-loop with all grains.
+            grains_transition[node][node] = capacity
         else:
-            # Distribute lumps roughly uniformly among outlinks
-            lumps_each = max(1, capacity // len(outlinks))
-            leftover = capacity - lumps_each * len(outlinks)
+            # Distribute grains roughly uniformly among outlinks.
+            grains_each = max(1, capacity // len(outlinks))
+            leftover = capacity - grains_each * len(outlinks)
             for o in outlinks:
-                lumps_transition[node][o] = lumps_each
+                grains_transition[node][o] = grains_each
 
-            # Put any leftover lumps into the first link for simplicity
+            # For simplicity, add any leftover grains to the first outlink.
             if leftover > 0:
                 first_o = outlinks[0]
-                lumps_transition[node][first_o] += leftover
+                grains_transition[node][first_o] += leftover
 
-    return lumps_transition
+    return grains_transition
 
-def lumps_draw_next_node(lumps_dict):
+def grains_draw_next_node(grains_dict):
     """
-    lumps_dict: { nextNode: lumps_count, ... }
-    Return one nextNode based on lumps-coded distribution.
+    grains_dict: { nextNode: grains_count, ... }
+    Perform a grains-coded random draw from the distribution.
+    Returns one nextNode based on the grains-coded counts.
     """
-    total = sum(lumps_dict.values())
+    total = sum(grains_dict.values())
     if total == 0:
-        # Degenerate => pick randomly from lumps_dict keys
-        return random.choice(list(lumps_dict.keys()))
+        # Degenerate case: pick randomly from available keys.
+        return random.choice(list(grains_dict.keys()))
 
     draw = random.randint(0, total - 1)
     running_sum = 0
-    for node, lumps in lumps_dict.items():
-        running_sum += lumps
+    for node, grains in grains_dict.items():
+        running_sum += grains
         if draw < running_sum:
             return node
-
-    # Theoretically never hits here if lumps_dict isn't empty
+    # Theoretically, this should never be reached.
     return None
 
-def lumps_coded_pagerank(graph, steps=10000, alpha=0.85, lumps_capacity=10, verbose=True):
+def grains_coded_pagerank(graph, steps=10000, alpha=0.85, grains_capacity=10, verbose=True):
     """
+    Compute PageRank using a grains-coded approach.
+
     graph: dict { node: [list of outlinked nodes] }
-    steps: number of random-walk steps
-    alpha: damping factor in [0,1], lumps-coded approach
-    lumps_capacity: lumps to assign among outlinks for each node
+    steps: number of random-walk steps.
+    alpha: damping factor in [0,1] (interpreted as a finite fraction).
+    grains_capacity: number of grains to assign among outlinks for each node.
 
-    We'll do a lumps-coded approach:
-    1) Build lumps-coded distribution over outlinks.
-    2) Use integer lumps for alpha * 100 to decide between following outlinks vs. teleport.
-    3) Perform a random walk of 'steps' iterations, tracking visit counts.
-    4) Return approximate PageRank by normalizing final counts.
+    Approach:
+      1) Build grains-coded distributions over outlinks.
+      2) Convert damping factor alpha into a grains-coded value: grains_alpha out of 100.
+      3) Perform a random walk for the specified number of steps, tracking visit counts.
+      4) Return an approximate PageRank by normalizing the final counts as exact fractions.
     """
+    # 1) Build grains-coded outlink distributions.
+    grains_transition = build_grains_transition(graph, capacity=grains_capacity)
 
-    # 1) Build lumps-coded outlink distributions
-    lumps_transition = build_lumps_transition(graph, capacity=lumps_capacity)
+    # 2) Convert damping factor: alpha is scaled into an integer out of 100.
+    grains_alpha = int(alpha * 100)  # e.g. 0.85 -> 85
+    grains_total = 100  # total grains for the damping decision.
 
-    # 2) Convert damping factor alpha -> lumps_alpha out of 100
-    lumps_alpha = int(alpha * 100)  # e.g. alpha=0.85 => lumps_alpha=85
-    lumps_total = 100  # leftover = lumps_total - lumps_alpha
-
-    # 3) Choose a random start node
+    # 3) Initialize random walk.
     nodes = list(graph.keys())
     current = random.choice(nodes)
-
-    # Initialize visit counts
     visit_count = {n: 0 for n in nodes}
 
-    # 4) Random walk
     for _ in range(steps):
         visit_count[current] += 1
 
-        # Decide whether to follow outlink (alpha) or teleport (1-alpha)
-        draw = random.randint(0, lumps_total - 1)
-        if draw < lumps_alpha:
-            # Follow lumps-coded outlink from current node
-            next_node = lumps_draw_next_node(lumps_transition[current])
+        # Decide whether to follow an outlink (with probability alpha) or teleport (with probability 1 - alpha).
+        draw = random.randint(0, grains_total - 1)
+        if draw < grains_alpha:
+            # Follow the grains-coded outlink from the current node.
+            next_node = grains_draw_next_node(grains_transition[current])
         else:
-            # Teleport: pick random node from the graph
+            # Teleport: choose a random node.
             next_node = random.choice(nodes)
 
         current = next_node
 
-    # 5) Normalize to get PageRank
+    # 4) Normalize visit counts to compute PageRank.
     total_visits = sum(visit_count.values())
-    pagerank = {n: visit_count[n] / total_visits for n in nodes}
+    # Use Fraction to represent the normalized value exactly.
+    pagerank = {n: Fraction(visit_count[n], total_visits) for n in nodes}
 
     if verbose:
         print("Final visit counts:", visit_count)
-        print("Pagerank approximation:", pagerank)
+        print("PageRank approximation (exact fractions):", pagerank)
 
     return pagerank
 
 def main():
-    # Example directed graph
+    # Example graph:
     graph = {
         "A": ["B", "C"],
         "B": ["C", "D"],
@@ -118,10 +117,8 @@ def main():
         "D": ["B", "C"]
     }
 
-    # Lumps-coded PageRank with capacity=10 lumps, alpha=0.85, and 2000 steps
-    pagerank = lumps_coded_pagerank(graph, steps=2000, alpha=0.85,
-                                    lumps_capacity=10, verbose=True)
+    # Compute grains-coded PageRank with grains_capacity=10, alpha=0.85, over 2000 steps.
+    pagerank = grains_coded_pagerank(graph, steps=2000, alpha=0.85, grains_capacity=10, verbose=True)
 
 if __name__ == "__main__":
     main()
-
