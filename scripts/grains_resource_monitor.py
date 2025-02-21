@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 grains_resource_monitor.py
 Shows how to track system resources (memory, CPU time) when refining capacity N(a)
@@ -19,8 +18,8 @@ def refine_capacity(old_capacity, factor, max_capacity):
     All calculations are done using integers.
     """
     mem_info = psutil.virtual_memory()
-    mem_percent = int(mem_info.percent)  # cast to integer to avoid floating-point usage
-    if mem_percent > 80:
+    mem_percent = int(mem_info.percent)  # already integer
+    if mem_percent >= 80:
         print("[WARNING] Memory usage above 80%. Refinement might be risky.")
 
     new_capacity = old_capacity * factor
@@ -28,14 +27,13 @@ def refine_capacity(old_capacity, factor, max_capacity):
         print(f"[STOP] new_capacity={new_capacity} would exceed max_capacity={max_capacity}.")
         return old_capacity  # no change
 
-    # Measure time cost in microseconds (integer arithmetic)
-    start_t = int(time.perf_counter() * 1_000_000)
-    # (Here you'd actually unify or rescale grains-coded data.)
-    time.sleep(0.01)  # simulate small overhead (the argument here is fixed; display only)
-    end_t = int(time.perf_counter() * 1_000_000)
-    dt = end_t - start_t  # dt in microseconds
+    # Measure time cost in nanoseconds using integer arithmetic.
+    start_t = time.perf_counter_ns()
+    time.sleep(10e-6)  # sleep for 10,000 ns (10 µs) as a fixed simulated overhead
+    end_t = time.perf_counter_ns()
+    dt = end_t - start_t  # dt in nanoseconds
 
-    print(f"Refined from {old_capacity} to {new_capacity}. [Time spent ~ {dt} µs]")
+    print(f"Refined from {old_capacity} to {new_capacity}. [Time spent ~ {dt} ns]")
     return new_capacity
 
 def main():
@@ -44,7 +42,6 @@ def main():
     print(f"Initial capacity = {capacity}, max_capacity = {MAX_CAP}")
     for i in range(5):
         capacity = refine_capacity(capacity, factor=2, max_capacity=MAX_CAP)
-        # Proceed with grains-coded computations at the new capacity...
         if capacity >= MAX_CAP:
             break
 
